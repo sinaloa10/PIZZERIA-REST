@@ -16,7 +16,7 @@ app.use(cors());
 const db = mysql.createConnection({
     host: 'localhost',  // Dirección del servidor MySQL
     user: 'root',       // Tu usuario de MySQL
-    password: 'root',   // Tu contraseña de MySQL
+    password: 'Admin@123',   // Tu contraseña de MySQL
     database: 'PizzeriaDB'
 });
 
@@ -108,6 +108,149 @@ app.get('/pizzas', (req, res) => {
         }
     });
 });
+
+// Ruta para agregar una pizza al carrito
+app.post('/carrito/pizza', (req, res) => {
+    const { id_cliente, id_pizza, cantidad } = req.body;
+
+    // Primero verificamos si el cliente ya tiene un carrito
+    const queryCarrito = 'SELECT * FROM CarritoCompras WHERE id_cliente = ? AND total = 0';
+    db.query(queryCarrito, [id_cliente], (err, carrito) => {
+        if (err) {
+            console.error('Error al verificar el carrito:', err);
+            return res.status(500).json({ error: 'Error al verificar el carrito' });
+        }
+
+        if (carrito.length === 0) {
+            return res.status(400).json({ error: 'El cliente no tiene un carrito activo' });
+        }
+
+        const id_carrito = carrito[0].id_carrito;
+
+        // Obtener el precio de la pizza
+        const queryPizza = 'SELECT * FROM Pizzas WHERE id_pizza = ?';
+        db.query(queryPizza, [id_pizza], (err, pizza) => {
+            if (err || pizza.length === 0) {
+                return res.status(500).json({ error: 'Error al obtener la pizza' });
+            }
+
+            const precio_unitario = pizza[0].precio;
+
+            // Insertamos el detalle del carrito
+            const queryDetalle = 'INSERT INTO CarritoDetalle (id_carrito, id_pizza, cantidad, precio_unitario) VALUES (?, ?, ?, ?)';
+            db.query(queryDetalle, [id_carrito, id_pizza, cantidad, precio_unitario], (err, result) => {
+                if (err) {
+                    console.error('Error al agregar pizza al carrito:', err);
+                    return res.status(500).json({ error: 'Error al agregar pizza al carrito' });
+                }
+
+                // Actualizamos el total del carrito
+                const nuevoTotal = cantidad * precio_unitario;
+                const queryTotal = 'UPDATE CarritoCompras SET total = total + ? WHERE id_carrito = ?';
+                db.query(queryTotal, [nuevoTotal, id_carrito], (err, result) => {
+                    if (err) {
+                        console.error('Error al actualizar el total del carrito:', err);
+                        return res.status(500).json({ error: 'Error al actualizar el total del carrito' });
+                    }
+
+                    res.status(201).json({ message: 'Pizza agregada al carrito' });
+                });
+            });
+        });
+    });
+});
+
+
+// Ruta para agregar un producto al carrito
+app.post('/carrito/producto', (req, res) => {
+    const { id_cliente, id_producto, cantidad } = req.body;
+    
+    // Verificar si el cliente tiene un carrito
+    const queryCarrito = 'SELECT * FROM CarritoCompras WHERE id_cliente = ? AND total = 0';
+    db.query(queryCarrito, [id_cliente], (err, carrito) => {
+        if (err) {
+            console.error('Error al verificar el carrito:', err);
+            return res.status(500).json({ error: 'Error al verificar el carrito' });
+        }
+        
+        if (carrito.length === 0) {
+            return res.status(400).json({ error: 'El cliente no tiene un carrito activo' });
+        }
+        
+        const id_carrito = carrito[0].id_carrito;
+        
+        // Obtener el precio del producto
+        const queryProducto = 'SELECT * FROM Productos WHERE id_producto = ?';
+        db.query(queryProducto, [id_producto], (err, producto) => {
+            if (err || producto.length === 0) {
+                return res.status(500).json({ error: 'Error al obtener el producto' });
+            }
+            
+            const precio_unitario = producto[0].precio;
+            
+            // Insertar el producto al carrito
+            const queryDetalle = 'INSERT INTO CarritoDetalle (id_carrito, id_producto, cantidad, precio_unitario) VALUES (?, ?, ?, ?)';
+            db.query(queryDetalle, [id_carrito, id_producto, cantidad, precio_unitario], (err, result) => {
+                if (err) {
+                    console.error('Error al agregar producto al carrito:', err);
+                    return res.status(500).json({ error: 'Error al agregar producto al carrito' });
+                }
+                
+                // Actualizar el total del carrito
+                const nuevoTotal = cantidad * precio_unitario;
+                const queryTotal = 'UPDATE CarritoCompras SET total = total + ? WHERE id_carrito = ?';
+                db.query(queryTotal, [nuevoTotal, id_carrito], (err, result) => {
+                    if (err) {
+                        console.error('Error al actualizar el total del carrito:', err);
+                        return res.status(500).json({ error: 'Error al actualizar el total del carrito' });
+                    }
+                    
+                    res.status(201).json({ message: 'Producto agregado al carrito' });
+                });
+            });
+        });
+    });
+});
+
+// Ruta para obtener el carrito de compras de un cliente
+app.get('/carrito/:id_cliente', (req, res) => {
+    const id_cliente = req.params.id_cliente;
+
+    const queryCarrito = 'SELECT * FROM CarritoCompras WHERE id_cliente = ? AND total > 0';
+    db.query(queryCarrito, [id_cliente], (err, carrito) => {
+        if (err) {
+            console.error('Error al obtener el carrito:', err);
+            return res.status(500).json({ error: 'Error al obtener el carrito' });
+        }
+        
+        if (carrito.length === 0) {
+            return res.status(404).json({ message: 'El cliente no tiene un carrito' });
+        }
+
+        const id_carrito = carrito[0].id_carrito;
+        
+        // Obtener los detalles del carrito (pizzas y productos)
+        const queryDetalles = `
+            SELECT cd.*, p.nombre AS pizza_nombre, pr.nombre AS producto_nombre
+            FROM CarritoDetalle cd
+            LEFT JOIN Pizzas p ON cd.id_pizza = p.id_pizza
+            LEFT JOIN Productos pr ON cd.id_producto = pr.id_producto
+            WHERE cd.id_carrito = ?
+        `;
+        db.query(queryDetalles, [id_carrito], (err, detalles) => {
+            if (err) {
+                console.error('Error al obtener los detalles del carrito:', err);
+                return res.status(500).json({ error: 'Error al obtener los detalles del carrito' });
+            }
+
+            res.json({
+                carrito: carrito[0],
+                detalles: detalles
+            });
+        });
+    });
+});
+
 
 
 // Iniciar el servidor
